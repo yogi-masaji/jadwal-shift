@@ -1,28 +1,24 @@
+export const dynamic = "force-dynamic";
+
 import { createClient } from "@/lib/supabase/server";
 import { Suspense } from "react";
 import KaryawanClient from "./KaryawanClient";
 
-async function KaryawanContent() {
+async function KaryawanData() {
   const supabase = await createClient();
 
-  const { data: employees } = await supabase
-    .from("employees")
-    .select(
-      `
-      id, employee_number, name, is_active, deactivated_at, deleted_at,
-      divisions ( id, name ),
-      employee_types ( id, code, label )
-    `,
-    )
-    .is("deleted_at", null)
-    .order("name");
-
-  const { data: divisions } = await supabase
-    .from("divisions")
-    .select("id, name");
-  const { data: employeeTypes } = await supabase
-    .from("employee_types")
-    .select("id, code, label");
+  const [{ data: employees }, { data: divisions }, { data: employeeTypes }] =
+    await Promise.all([
+      supabase
+        .from("employees")
+        .select(
+          `id, employee_number, name, is_active, deactivated_at, deleted_at, divisions(id,name), employee_types(id,code,label)`,
+        )
+        .is("deleted_at", null)
+        .order("name"),
+      supabase.from("divisions").select("id, name"),
+      supabase.from("employee_types").select("id, code, label"),
+    ]);
 
   return (
     <KaryawanClient
@@ -42,7 +38,7 @@ export default function KaryawanPage() {
         </div>
       }
     >
-      <KaryawanContent />
+      <KaryawanData />
     </Suspense>
   );
 }

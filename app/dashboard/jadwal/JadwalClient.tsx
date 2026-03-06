@@ -84,6 +84,107 @@ function isWeekend(y: number, m: number, d: number) {
   return day === 0 || day === 6;
 }
 
+// ── Shift Code Dropdown ───────────────────────────────────
+function ShiftDropdown({
+  codes,
+  value,
+  onChange,
+  onClose,
+}: {
+  codes: ShiftCode[];
+  value: string;
+  onChange: (code: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filtered = codes.filter(
+    (s) =>
+      s.code.toLowerCase().includes(search.toLowerCase()) ||
+      s.label.toLowerCase().includes(search.toLowerCase()),
+  );
+  const grouped: Record<string, ShiftCode[]> = {};
+  filtered.forEach((s) => {
+    if (!grouped[s.category]) grouped[s.category] = [];
+    grouped[s.category].push(s);
+  });
+  const CAT_ORDER = ["pagi", "siang", "malam", "libur", "cuti"];
+  const CAT_LABEL: Record<string, string> = {
+    pagi: "🌅 Pagi",
+    siang: "☀️ Siang",
+    malam: "🌙 Malam",
+    libur: "😴 Libur",
+    cuti: "✈️ Cuti",
+  };
+  return (
+    <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl border border-gray-200 shadow-2xl w-52 overflow-hidden">
+      <div className="p-2 border-b border-gray-100">
+        <input
+          autoFocus
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onClose();
+          }}
+          placeholder="Cari kode shift..."
+          className="w-full px-2 py-1.5 text-xs rounded-lg border border-gray-200 outline-none focus:border-blue-400"
+        />
+      </div>
+      <div className="max-h-56 overflow-y-auto">
+        {/* Clear / kosongkan */}
+        <button
+          onClick={() => {
+            onChange("");
+            onClose();
+          }}
+          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-400 hover:bg-gray-50 cursor-pointer border-b border-gray-100"
+        >
+          <span className="w-8 text-center font-mono font-bold text-gray-300">
+            –
+          </span>
+          <span>Kosongkan</span>
+        </button>
+        {CAT_ORDER.filter((c) => grouped[c]?.length).map((cat) => (
+          <div key={cat}>
+            <div className="px-3 py-1 text-[9px] font-extrabold uppercase tracking-widest text-gray-400 bg-gray-50">
+              {CAT_LABEL[cat]}
+            </div>
+            {grouped[cat].map((s) => (
+              <button
+                key={s.code}
+                onClick={() => {
+                  onChange(s.code);
+                  onClose();
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-gray-50 transition
+                  ${value === s.code ? "bg-blue-50" : ""}`}
+              >
+                <span
+                  className="w-8 text-center font-mono font-extrabold text-[10px] px-1 py-0.5 rounded"
+                  style={{ background: s.color_bg, color: s.color_text }}
+                >
+                  {s.code}
+                </span>
+                <span className="text-gray-600 truncate">{s.label}</span>
+                {s.start_time && (
+                  <span className="ml-auto text-[9px] text-gray-400 shrink-0">
+                    {s.start_time.slice(0, 5)}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <p className="px-3 py-4 text-xs text-gray-400 text-center">
+            Kode tidak ditemukan
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Seeded RNG (Mulberry32) ───────────────────────────────
 // ── Seeded RNG (Mulberry32) ───────────────────────────────
 function mulberry32(seed: number) {
   return function () {
@@ -250,6 +351,8 @@ export default function JadwalClient({
   const today = new Date();
 
   const [employees] = useState<Employee[]>(initialEmployees);
+  const [loadedEmployees, setLoadedEmployees] =
+    useState<Employee[]>(initialEmployees);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
@@ -261,6 +364,7 @@ export default function JadwalClient({
     day: number;
   } | null>(null);
   const [editVal, setEditVal] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -272,6 +376,12 @@ export default function JadwalClient({
 
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDay(year, month);
+
+  // Karyawan yang digunakan untuk render kalender:
+  // - saat generate: pakai employees (aktif saja)
+  // - saat muat tersimpan: pakai loadedEmployees (termasuk historis/terhapus)
+  const displayEmployees =
+    loadedEmployees.length > employees.length ? loadedEmployees : employees;
 
   const shiftMap = useMemo(() => {
     const m: Record<string, ShiftCode> = {};
@@ -300,6 +410,7 @@ export default function JadwalClient({
     setSchedMeta(null);
     setSelectedDay(null);
     setFilterCat("all");
+    setLoadedEmployees(employees); // reset ke aktif saja saat generate baru
     setGenerateCount((c) => c + 1);
     showToast(
       generateCount === 0
@@ -417,27 +528,67 @@ export default function JadwalClient({
       return;
     }
 
+    // Fetch details + employee snapshot (termasuk yang sudah dihapus)
     const { data: details } = await supabase
       .from("schedule_details")
-      .select("employee_id, date, shift_code_id, shift_codes(code)")
+      .select(
+        `
+        employee_id,
+        date,
+        shift_codes ( code ),
+        employees ( id, employee_number, name, is_active, deleted_at,
+          divisions ( id, name ),
+          employee_types ( id, code, label )
+        )
+      `,
+      )
       .eq("schedule_id", existing.id);
 
     if (!details) return;
 
-    const loaded: ScheduleData = {};
-    employees.forEach((e) => {
-      loaded[e.id] = {};
-    });
-    details.forEach(
-      (d: {
+    // Rebuild employee list dari detail rows (termasuk yang terhapus)
+    const empMap: Record<string, Employee> = {};
+    (
+      details as {
         employee_id: string;
         date: string;
         shift_codes: { code: string } | null;
-      }) => {
-        const day = parseInt(d.date.split("-")[2], 10); // hindari timezone shift
-        loaded[d.employee_id][day] = d.shift_codes?.code ?? null;
-      },
-    );
+        employees: Employee | null;
+      }[]
+    ).forEach((d) => {
+      if (d.employees && !empMap[d.employee_id]) {
+        empMap[d.employee_id] = {
+          ...d.employees,
+          deactivated_at: null,
+        };
+      }
+    });
+
+    // Merge: aktif dari state + historis dari jadwal (yang mungkin sudah dihapus)
+    const mergedEmps = [...employees];
+    Object.values(empMap).forEach((emp) => {
+      if (!mergedEmps.find((e) => e.id === emp.id)) {
+        mergedEmps.push(emp); // tambahkan karyawan historis yang tidak ada di list aktif
+      }
+    });
+    setLoadedEmployees(mergedEmps);
+
+    // Build schedule map
+    const loaded: ScheduleData = {};
+    mergedEmps.forEach((e) => {
+      loaded[e.id] = {};
+    });
+    (
+      details as {
+        employee_id: string;
+        date: string;
+        shift_codes: { code: string } | null;
+      }[]
+    ).forEach((d) => {
+      const day = parseInt(d.date.split("-")[2], 10);
+      if (!loaded[d.employee_id]) loaded[d.employee_id] = {};
+      loaded[d.employee_id][day] = d.shift_codes?.code ?? null;
+    });
 
     setSchedule(loaded);
     setSchedMeta(existing);
@@ -466,7 +617,7 @@ export default function JadwalClient({
       if (!schedule) return { work: 0, libur: 0 };
       let work = 0,
         libur = 0;
-      employees.forEach((e) => {
+      displayEmployees.forEach((e) => {
         const code = schedule[e.id]?.[day];
         if (!code) return;
         const sc = shiftMap[code];
@@ -527,6 +678,7 @@ export default function JadwalClient({
               setMonth(+e.target.value);
               setSchedule(null);
               setSchedMeta(null);
+              setGenerateCount(0);
             }}
             className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 outline-none focus:border-blue-500 bg-white cursor-pointer"
           >
@@ -542,6 +694,7 @@ export default function JadwalClient({
               setYear(+e.target.value);
               setSchedule(null);
               setSchedMeta(null);
+              setGenerateCount(0);
             }}
             className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 outline-none focus:border-blue-500 bg-white cursor-pointer"
           >
@@ -705,7 +858,7 @@ export default function JadwalClient({
                   const isSel = selectedDay === day;
                   const stats = dayStats(day);
 
-                  const dayEntries = employees
+                  const dayEntries = displayEmployees
                     .map((e) => ({ ...e, code: schedule[e.id]?.[day] ?? null }))
                     .filter((e) => e.code)
                     .filter(
@@ -823,7 +976,7 @@ export default function JadwalClient({
                   {/* Summary badges */}
                   <div className="flex gap-1.5 mt-3 flex-wrap">
                     {Object.entries(CATEGORY_META).map(([cat, meta]) => {
-                      const count = employees.filter(
+                      const count = displayEmployees.filter(
                         (e) =>
                           shiftMap[schedule[e.id]?.[selectedDay] ?? ""]
                             ?.category === cat,
@@ -855,7 +1008,7 @@ export default function JadwalClient({
                       (typeof CATEGORY_META)[keyof typeof CATEGORY_META],
                     ][]
                   ).map(([cat, meta]) => {
-                    const catEmps = employees.filter(
+                    const catEmps = displayEmployees.filter(
                       (e) =>
                         shiftMap[schedule[e.id]?.[selectedDay] ?? ""]
                           ?.category === cat,
@@ -909,31 +1062,66 @@ export default function JadwalClient({
                                   </p>
                                 </div>
                                 {editing ? (
-                                  <div className="flex gap-1 items-center">
-                                    <input
-                                      autoFocus
-                                      value={editVal}
-                                      onChange={(e) =>
-                                        setEditVal(e.target.value.toUpperCase())
-                                      }
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter")
+                                  <div className="relative">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setDropdownOpen((o) => !o);
+                                      }}
+                                      className="flex items-center gap-1.5 px-2 py-1 rounded-lg border-2 border-blue-400 bg-blue-50 cursor-pointer"
+                                    >
+                                      {editVal ? (
+                                        <span
+                                          className="font-mono font-extrabold text-[10px]"
+                                          style={{
+                                            color:
+                                              shiftMap[editVal]?.color_text ??
+                                              "#374151",
+                                          }}
+                                        >
+                                          {editVal}
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs text-gray-400">
+                                          Pilih...
+                                        </span>
+                                      )}
+                                      <span className="text-[10px] text-blue-400">
+                                        ▾
+                                      </span>
+                                    </button>
+                                    <div className="flex gap-1 mt-1">
+                                      <button
+                                        onClick={() => {
                                           commitEdit(emp.id, selectedDay);
-                                        if (e.key === "Escape") {
+                                          setDropdownOpen(false);
+                                        }}
+                                        className="flex-1 py-1 bg-blue-600 text-white text-[10px] font-bold rounded-lg cursor-pointer"
+                                      >
+                                        ✓ Simpan
+                                      </button>
+                                      <button
+                                        onClick={() => {
                                           setEditCell(null);
                                           setEditVal("");
-                                        }
-                                      }}
-                                      className="w-10 px-1 py-1 text-center font-mono text-xs font-bold rounded-lg border border-blue-400 outline-none uppercase bg-white"
-                                    />
-                                    <button
-                                      onClick={() =>
-                                        commitEdit(emp.id, selectedDay)
-                                      }
-                                      className="w-6 h-6 bg-blue-100 text-blue-600 rounded-md text-xs cursor-pointer"
-                                    >
-                                      ✓
-                                    </button>
+                                          setDropdownOpen(false);
+                                        }}
+                                        className="px-2 py-1 bg-gray-100 text-gray-500 text-[10px] rounded-lg cursor-pointer"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                    {dropdownOpen && (
+                                      <ShiftDropdown
+                                        codes={shiftCodes}
+                                        value={editVal}
+                                        onChange={(v) => {
+                                          setEditVal(v);
+                                          setDropdownOpen(false);
+                                        }}
+                                        onClose={() => setDropdownOpen(false)}
+                                      />
+                                    )}
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-1">
@@ -944,7 +1132,7 @@ export default function JadwalClient({
                                         color: sc?.color_text ?? "#374151",
                                       }}
                                     >
-                                      {code}
+                                      {code ?? "–"}
                                     </span>
                                     <button
                                       onClick={(e) => {
@@ -954,6 +1142,7 @@ export default function JadwalClient({
                                           day: selectedDay,
                                         });
                                         setEditVal(code ?? "");
+                                        setDropdownOpen(false);
                                       }}
                                       className="w-5 h-5 bg-gray-100 hover:bg-gray-200 rounded-md text-[9px] cursor-pointer flex items-center justify-center"
                                     >
@@ -971,7 +1160,7 @@ export default function JadwalClient({
 
                   {/* No shift */}
                   {(() => {
-                    const noShift = employees.filter(
+                    const noShift = displayEmployees.filter(
                       (e) => !schedule[e.id]?.[selectedDay],
                     );
                     if (!noShift.length) return null;
