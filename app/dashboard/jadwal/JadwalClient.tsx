@@ -15,6 +15,7 @@ type Employee = {
   allowed_days_of_week: number[] | null;
   needs_full_schedule: boolean;
   must_cover_all_shifts: boolean;
+  level: number;
 };
 
 type ShiftCode = {
@@ -313,11 +314,53 @@ function generateSchedule(
         liburToday++;
         return;
       }
+      // Tentukan shift kandidat
       const period = (idx + day - 1) % 21;
-      if (period < 7) sched[emp.id][day] = PAGI[(idx + day) % PAGI.length];
-      else if (period < 14)
-        sched[emp.id][day] = SIANG[(idx + day) % SIANG.length];
-      else sched[emp.id][day] = MALAM[(idx + day) % MALAM.length];
+      let candidateShift: string;
+      if (period < 7) candidateShift = PAGI[(idx + day) % PAGI.length];
+      else if (period < 14) candidateShift = SIANG[(idx + day) % SIANG.length];
+      else candidateShift = MALAM[(idx + day) % MALAM.length];
+
+      // Cek konflik level: level bersebelahan (|a-b|===1) tidak boleh satu shift
+      const empLevel = emp.level ?? 3;
+      const conflictLevels = [empLevel - 1, empLevel + 1];
+      const shiftConflict = shuffledEmps.some((other) => {
+        if (other.id === emp.id) return false;
+        const otherLevel = other.level ?? 3;
+        if (!conflictLevels.includes(otherLevel)) return false;
+        return sched[other.id]?.[day] === candidateShift;
+      });
+
+      if (shiftConflict) {
+        // Coba shift lain dari pool yang sama, lalu pool lain
+        const allPools = [PAGI, SIANG, MALAM];
+        const currentPool = period < 7 ? PAGI : period < 14 ? SIANG : MALAM;
+        let resolved = false;
+        // Coba semua kode di pool yang sama dulu
+        for (const pool of [
+          currentPool,
+          ...allPools.filter((p) => p !== currentPool),
+        ]) {
+          for (let pi = 0; pi < pool.length; pi++) {
+            const alt = pool[(idx + day + pi + 1) % pool.length];
+            const altConflict = shuffledEmps.some((other) => {
+              if (other.id === emp.id) return false;
+              const otherLevel = other.level ?? 3;
+              if (!conflictLevels.includes(otherLevel)) return false;
+              return sched[other.id]?.[day] === alt;
+            });
+            if (!altConflict) {
+              candidateShift = alt;
+              resolved = true;
+              break;
+            }
+          }
+          if (resolved) break;
+        }
+        // Kalau semua konflik, tetap pakai kandidat awal (fallback)
+      }
+
+      sched[emp.id][day] = candidateShift;
     });
 
     // Kontrak: pastikan semua shift terwakili

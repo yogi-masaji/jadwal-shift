@@ -1,8 +1,11 @@
+export const dynamic = "force-dynamic";
+
 import { createClient } from "@/lib/supabase/server";
 import { Suspense } from "react";
 import JadwalClient from "./JadwalClient";
 
-async function JadwalContent() {
+// Komponen async yang fetch data — HARUS dipanggil di dalam Suspense
+async function JadwalData() {
   const supabase = await createClient();
 
   const [{ data: employees }, { data: shiftCodes }, { data: schedules }] =
@@ -10,7 +13,7 @@ async function JadwalContent() {
       supabase
         .from("v_active_employees")
         .select(
-          "id, employee_number, name, division, type_code, type_label, max_work_days_per_month, allowed_days_of_week, needs_full_schedule, must_cover_all_shifts",
+          "id, employee_number, name, division, type_code, type_label, max_work_days_per_month, allowed_days_of_week, needs_full_schedule, must_cover_all_shifts, level",
         )
         .order("name"),
       supabase
@@ -35,18 +38,17 @@ async function JadwalContent() {
   );
 }
 
-function JadwalFallback() {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <p className="text-sm text-gray-400">Memuat jadwal...</p>
-    </div>
-  );
-}
-
+// Page TIDAK async — cukup render Suspense wrapper
 export default function JadwalPage() {
   return (
-    <Suspense fallback={<JadwalFallback />}>
-      <JadwalContent />
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-64">
+          <p className="text-sm text-gray-400">Memuat jadwal...</p>
+        </div>
+      }
+    >
+      <JadwalData />
     </Suspense>
   );
 }

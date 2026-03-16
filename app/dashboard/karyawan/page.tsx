@@ -12,7 +12,7 @@ async function KaryawanData() {
       supabase
         .from("employees")
         .select(
-          `id, employee_number, name, is_active, deactivated_at, deleted_at, divisions(id,name), employee_types(id,code,label)`,
+          `id, employee_number, name, level, is_active, deactivated_at, deleted_at, divisions(id,name), employee_types(id,code,label)`,
         )
         .is("deleted_at", null)
         .order("name"),

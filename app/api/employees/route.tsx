@@ -1,7 +1,13 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
-// UPDATE (edit data / deactivate)
+const EMPLOYEE_SELECT = `
+  id, employee_number, name, level, is_active,
+  deactivated_at, deleted_at,
+  divisions ( id, name ),
+  employee_types ( id, code, label )
+`;
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -17,9 +23,7 @@ export async function POST(request: Request) {
       .from("employees")
       .update(payload)
       .eq("id", id)
-      .select(
-        `id, employee_number, name, is_active, deactivated_at, deleted_at, divisions(id,name), employee_types(id,code,label)`,
-      )
+      .select(EMPLOYEE_SELECT)
       .single();
     if (error)
       return NextResponse.json({ error: error.message }, { status: 400 });

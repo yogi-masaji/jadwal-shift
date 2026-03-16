@@ -10,6 +10,7 @@ type Employee = {
   id: string;
   employee_number: string;
   name: string;
+  level: number;
   is_active: boolean;
   deactivated_at: string | null;
   deleted_at: string | null;
@@ -21,6 +22,7 @@ type FormState = {
   employee_number: string;
   division_id: number;
   employee_type_id: number;
+  level: number;
 };
 
 const TYPE_COLORS: Record<string, { bg: string; text: string }> = {
@@ -148,6 +150,41 @@ function EmployeeForm({
           ))}
         </select>
       </div>
+      <div>
+        <label className={labelCls}>Level Performa</label>
+        <div className="flex gap-2">
+          {[1, 2, 3, 4, 5].map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => onChange({ ...form, level: l })}
+              className={`flex-1 py-2 rounded-lg text-sm font-extrabold border-2 transition cursor-pointer
+                ${
+                  form.level === l
+                    ? l <= 2
+                      ? "bg-red-500 border-red-500 text-white"
+                      : l === 3
+                        ? "bg-amber-400 border-amber-400 text-white"
+                        : "bg-emerald-500 border-emerald-500 text-white"
+                    : "bg-white border-gray-200 text-gray-400 hover:border-gray-300"
+                }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] text-gray-400 mt-1.5">
+          {form.level === 1
+            ? "🚫 Konflik dengan: Level 2"
+            : form.level === 2
+              ? "🚫 Konflik dengan: Level 1 & 3"
+              : form.level === 3
+                ? "🚫 Konflik dengan: Level 2 & 4"
+                : form.level === 4
+                  ? "🚫 Konflik dengan: Level 3 & 5"
+                  : "🚫 Konflik dengan: Level 4"}
+        </p>
+      </div>
       <button
         onClick={onSubmit}
         disabled={loading}
@@ -192,6 +229,7 @@ export default function KaryawanClient({
     employee_number: "",
     division_id: divisions[0]?.id ?? 1,
     employee_type_id: employeeTypes[0]?.id ?? 1,
+    level: 3,
   };
   const [addForm, setAddForm] = useState<FormState>(emptyForm);
   const [editForm, setEditForm] = useState<FormState>(emptyForm);
@@ -243,10 +281,11 @@ export default function KaryawanClient({
         employee_number: addForm.employee_number.trim(),
         division_id: addForm.division_id,
         employee_type_id: addForm.employee_type_id,
+        level: addForm.level,
         is_active: true,
       })
       .select(
-        `id, employee_number, name, is_active, deactivated_at, deleted_at, divisions(id,name), employee_types(id,code,label)`,
+        `id, employee_number, name, level, is_active, deactivated_at, deleted_at, divisions(id,name), employee_types(id,code,label)`,
       )
       .single();
 
@@ -268,6 +307,7 @@ export default function KaryawanClient({
       employee_number: emp.employee_number,
       division_id: emp.divisions?.id ?? divisions[0]?.id,
       employee_type_id: emp.employee_types?.id ?? employeeTypes[0]?.id,
+      level: emp.level ?? 3,
     });
     setEditTarget(emp);
   }
@@ -281,6 +321,7 @@ export default function KaryawanClient({
         employee_number: editForm.employee_number.trim(),
         division_id: editForm.division_id,
         employee_type_id: editForm.employee_type_id,
+        level: editForm.level,
       });
       setEmployees((prev) => prev.map((e) => (e.id === data.id ? data : e)));
       setEditTarget(null);
@@ -468,6 +509,18 @@ export default function KaryawanClient({
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${tc.bg} ${tc.text}`}
                         >
                           {emp.employee_types?.label}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full
+                          ${
+                            emp.level <= 2
+                              ? "bg-red-100 text-red-600"
+                              : emp.level === 3
+                                ? "bg-amber-100 text-amber-600"
+                                : "bg-emerald-100 text-emerald-600"
+                          }`}
+                        >
+                          L{emp.level ?? 3}
                         </span>
                       </div>
                     </div>
